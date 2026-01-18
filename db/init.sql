@@ -29,4 +29,3 @@ CREATE TABLE IF NOT EXISTS game_log (
 
 INSERT INTO action (name) VALUES ('boss_kill'), ('resource_gather'), ('quest_complete');
 INSERT INTO points (name) VALUES ('exp'), ('gold'), ('crystals');
-INSERT INTO gamer (nickname, email) VALUES ('PlayerOne', 'p1@example.com'), ('ShadowWalker', 'sw@example.com');

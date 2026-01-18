@@ -17,5 +17,27 @@ services:
         volumes:
             - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql
             - postgres_data:/var/lib/postgresql/data
+
+        networks:
+            - analytics_net
+    generator:
+        build: ./generator
+        container_name: data_generator
+        restart: "no"
+
+        environment:
+            POSTGRES_DB: ${POSTGRES_DB}
+            POSTGRES_USER: ${POSTGRES_USER}
+            POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+            DB_HOST: db
+
+        depends_on:
+            - db
+
+        networks:
+            - analytics_net
 volumes:
   postgres_data:
+
+networks:
+  analytics_net:
