@@ -8,17 +8,21 @@ from faker import Faker
 fake = Faker()
 
 DB_CONFIG = {
-    'dbname': os.getenv('POSTGRES_DB'),
-    'user': os.getenv('POSTGRES_USER'),
-    'password': os.getenv('POSTGRES_PASSWORD'),
-    'host': os.getenv('DB_HOST', 'db')
+    'dbname': os.getenv('POSTGRES_DB', 'game_data'),
+    'user': os.getenv('POSTGRES_USER', 'postgres'),
+    'password': os.getenv('POSTGRES_PASSWORD', 'super_secret_password'),
+    'host': os.getenv('DB_HOST', 'db'),
+    'port': int(os.getenv('DB_PORT', 5432))
 }
 
 def get_connection():
+    """Функция для безопасного подключения к БД с ожиданием готовности"""
     while True:
         try:
-            return psycopg2.connect(**DB_CONFIG)
-        except:
+            conn = psycopg2.connect(**DB_CONFIG)
+            return conn
+        except Exception as e:
+            print(f"Ожидание базы данных... {e}")
             time.sleep(2)
 
 def run():
@@ -26,42 +30,64 @@ def run():
     cur = conn.cursor(cursor_factory=RealDictCursor)
 
     cur.execute("SELECT COUNT(*) FROM gamer")
-    if cur.fetchone()['count'] < 100:
-        for _ in range(100):
+    if cur.fetchone()['count'] < 20:
+        print("Инициализация начальных игроков...")
+        for _ in range(20):
             cur.execute(
-                "INSERT INTO gamer (nickname, email) VALUES (%s, %s) ON CONFLICT DO NOTHING",
+                "INSERT INTO gamer (nickname, email, level) VALUES (%s, %s, 1) ON CONFLICT DO NOTHING",
                 (fake.user_name(), fake.email())
             )
         conn.commit()
 
-    cur.execute("SELECT id FROM gamer")
-    gamers = [r['id'] for r in cur.fetchall()]
+    cur.execute("SELECT id, level FROM gamer")
+    rows = cur.fetchall()
+    gamer_levels = {r['id']: r['level'] for r in rows}
+
     cur.execute("SELECT id FROM action")
     actions = [r['id'] for r in cur.fetchall()]
     cur.execute("SELECT id FROM points")
     points = [r['id'] for r in cur.fetchall()]
 
-    for i in range(2000):
+    if not actions or not points:
+        print("Ошибка: Справочники (action, points) пусты! Проверьте init.sql")
+        return
+
+    print("Генерация данных запущена...")
+    
+    while True:
         try:
-            cur.execute("""
-                INSERT INTO game_log (gamer_id, action_id, points_id, reward_value, current_level, session_duration_sec)
-                VALUES (%s, %s, %s, %s, %s, %s)
-            """, (
-                random.choice(gamers), 
-                random.choice(actions), 
-                random.choice(points), 
-                random.randint(10, 1000), 
-                random.randint(1, 50), 
-                random.randint(30, 3600)
-            ))
-            if i % 100 == 0:
-                conn.commit()
-        except:
-            continue
+            for g_id in gamer_levels.keys():
+                if random.random() < 0.05 and gamer_levels[g_id] < 50:
+                    gamer_levels[g_id] += 1
+                    cur.execute("UPDATE gamer SET level = %s WHERE id = %s", (gamer_levels[g_id], g_id))
 
-    conn.commit()
-    cur.close()
-    conn.close()
+                cur.execute("""
+                    INSERT INTO game_log (
+                        gamer_id, 
+                        action_id, 
+                        points_id, 
+                        reward_value, 
+                        current_level, 
+                        session_duration_sec
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                """, (
+                    g_id, 
+                    random.choice(actions), 
+                    random.choice(points), 
+                    random.randint(10, 500), 
+                    gamer_levels[g_id],      
+                    random.randint(60, 1800) 
+                ))
+            
+            conn.commit()
+            print(f"Пакет данных записан. Уровни синхронизированы с БД.")
+            time.sleep(1) 
 
-if __name__ == "__main__":
+        except Exception as e:
+            print(f"Ошибка при генерации: {e}")
+            conn.rollback()
+            time.sleep(5)
+
+if __name__ == '__main__':
     run()

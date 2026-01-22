@@ -1,43 +1,95 @@
-version: '3.8'
-
 services:
-    db:
-        image: postgres:15
-        container_name: game_db
-        restart: always
+  db:
+    image: postgres:15
+    container_name: game_db
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - analytics_net
+    restart: unless-stopped
 
-        environment:
-            POSTGRES_USER: ${POSTGRES_USER}
-            POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-            POSTGRES_DB: ${POSTGRES_DB}
-          
-        ports:
-            - "5432:5432"
+  redis:
+    image: redis:7-alpine
+    container_name: game_redis
+    networks:
+      - analytics_net
+    restart: unless-stopped
 
-        volumes:
-            - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql
-            - postgres_data:/var/lib/postgresql/data
+  redash-init:
+    image: redash/redash:10.1.0.b50633
+    command: create_db
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      REDASH_DATABASE_URL: ${REDASH_DATABASE_URL}
+      REDASH_SECRET_KEY: ${REDASH_SECRET_KEY}
+      REDASH_COOKIE_SECRET: ${REDASH_COOKIE_SECRET}
+    networks:
+      - analytics_net
 
-        networks:
-            - analytics_net
-    generator:
-        build: ./generator
-        container_name: data_generator
-        restart: "no"
+  redash:
+    image: redash/redash:10.1.0.b50633
+    command: server
+    ports:
+      - "${REDASH_PORT}:5000"
+    depends_on:
+      db:
+        condition: service_healthy
+      redash-init:
+        condition: service_completed_successfully
+    environment:
+      REDASH_LOG_LEVEL: "INFO"
+      REDASH_REDIS_URL: ${REDASH_REDIS_URL}
+      REDASH_DATABASE_URL: ${REDASH_DATABASE_URL}
+      REDASH_SECRET_KEY: ${REDASH_SECRET_KEY}
+      REDASH_COOKIE_SECRET: ${REDASH_COOKIE_SECRET}
+    networks:
+      - analytics_net
+    restart: unless-stopped
 
-        environment:
-            POSTGRES_DB: ${POSTGRES_DB}
-            POSTGRES_USER: ${POSTGRES_USER}
-            POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-            DB_HOST: db
+  redash-worker:
+    image: redash/redash:10.1.0.b50633
+    command: worker
+    depends_on:
+      - redash
+    environment:
+      REDASH_REDIS_URL: ${REDASH_REDIS_URL}
+      REDASH_DATABASE_URL: ${REDASH_DATABASE_URL}
+      REDASH_SECRET_KEY: ${REDASH_SECRET_KEY}
+      REDASH_COOKIE_SECRET: ${REDASH_COOKIE_SECRET}
+      QUEUES: "queries,scheduled_queries,celery"
+    networks:
+      - analytics_net
+    restart: unless-stopped
 
-        depends_on:
-            - db
+  data_generator:
+    build: ./generator
+    container_name: data_generator
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DB_URL: ${DB_URL}
+    networks:
+      - analytics_net
+    restart: unless-stopped
 
-        networks:
-            - analytics_net
 volumes:
   postgres_data:
 
 networks:
   analytics_net:
+    driver: bridge
