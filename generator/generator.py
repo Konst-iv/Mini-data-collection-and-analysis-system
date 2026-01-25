@@ -57,10 +57,10 @@ def run():
                 session_time_sec = random.randint(1800, 7200)
                 current_lvl = gamer_levels[g_id]
 
-                virtual_time += timedelta(seconds=random.randint(60, 300)) 
+                virtual_time += timedelta(minutes=random.randint(30, 120)) 
                 
    
-                exp_gain = (session_time_sec // 60) * random.randint(5, 15)
+                exp_gain = (session_time_sec // 60) * random.randint(1, 3)
                 
                 cur.execute("""
                     INSERT INTO game_log (gamer_id, action_id, points_id, reward_value, current_level, session_duration_sec, created_at)

@@ -1,3 +1,5 @@
+version: '3.8'
+
 services:
   db:
     image: postgres:15
@@ -16,15 +18,11 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-    networks:
-      - analytics_net
     restart: unless-stopped
 
   redis:
     image: redis:7-alpine
     container_name: game_redis
-    networks:
-      - analytics_net
     restart: unless-stopped
 
   redash-init:
@@ -34,11 +32,9 @@ services:
       db:
         condition: service_healthy
     environment:
-      REDASH_DATABASE_URL: ${REDASH_DATABASE_URL}
+      REDASH_DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db/redash_internal
       REDASH_SECRET_KEY: ${REDASH_SECRET_KEY}
       REDASH_COOKIE_SECRET: ${REDASH_COOKIE_SECRET}
-    networks:
-      - analytics_net
 
   redash:
     image: redash/redash:10.1.0.b50633
@@ -52,12 +48,10 @@ services:
         condition: service_completed_successfully
     environment:
       REDASH_LOG_LEVEL: "INFO"
-      REDASH_REDIS_URL: ${REDASH_REDIS_URL}
-      REDASH_DATABASE_URL: ${REDASH_DATABASE_URL}
+      REDASH_REDIS_URL: redis://redis:6379/0
+      REDASH_DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db/redash_internal
       REDASH_SECRET_KEY: ${REDASH_SECRET_KEY}
       REDASH_COOKIE_SECRET: ${REDASH_COOKIE_SECRET}
-    networks:
-      - analytics_net
     restart: unless-stopped
 
   redash-worker:
@@ -66,13 +60,11 @@ services:
     depends_on:
       - redash
     environment:
-      REDASH_REDIS_URL: ${REDASH_REDIS_URL}
-      REDASH_DATABASE_URL: ${REDASH_DATABASE_URL}
+      REDASH_REDIS_URL: redis://redis:6379/0
+      REDASH_DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db/redash_internal
       REDASH_SECRET_KEY: ${REDASH_SECRET_KEY}
       REDASH_COOKIE_SECRET: ${REDASH_COOKIE_SECRET}
       QUEUES: "queries,scheduled_queries,celery"
-    networks:
-      - analytics_net
     restart: unless-stopped
 
   data_generator:
@@ -82,14 +74,8 @@ services:
       db:
         condition: service_healthy
     environment:
-      DB_URL: ${DB_URL}
-    networks:
-      - analytics_net
+      DB_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
     restart: unless-stopped
 
 volumes:
   postgres_data:
-
-networks:
-  analytics_net:
-    driver: bridge
